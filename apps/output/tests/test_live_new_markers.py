@@ -255,7 +255,9 @@ class XcJsonMarkerTests(OutputEndpointTestMixin, TestCase):
         request = self.factory.get(
             "/player_api.php", {"action": action, "stream_id": str(self.channel.id)}
         )
-        listings = xc_get_epg(request, self.user)["epg_listings"]
+        listings = xc_get_epg(
+            request, self.user, short=(action == "get_short_epg")
+        )["epg_listings"]
         return [base64.b64decode(item["title"]).decode() for item in listings]
 
     def test_short_epg_carries_the_marker(self):
