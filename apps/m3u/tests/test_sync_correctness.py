@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import connection
 from django.test import TestCase, TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.channels.models import (
@@ -1503,6 +1504,60 @@ class CompactNumberingTests(TestCase):
         )
         # Clean up so other tests in this class are not affected.
         release_task_lock("refresh_single_m3u_account", account.id)
+
+    def _repack_by_provider_number(self, reverse=False):
+        # Channels are created in id order B, D, A, C (default sort); the
+        # group is then switched to the Provider number sort and repacked.
+        from apps.channels.compact_numbering import repack_group
+
+        account, group, rel = self._compact_account_with_group(
+            start=100, end=110
+        )
+        for name, chno in (("B", 20), ("D", 40), ("A", 10), ("C", 30)):
+            _make_stream(
+                account, group, name=name, tvg_id=name.lower(),
+                stream_chno=chno,
+            )
+        _make_stream(account, group, name="NoNum", tvg_id="nonum")
+        _sync(account)
+
+        rel.custom_properties = {
+            "compact_numbering": True,
+            "channel_sort_order": "stream_chno",
+            "channel_sort_reverse": reverse,
+        }
+        rel.save()
+        with CaptureQueriesContext(connection) as ctx:
+            repack_group(rel)
+        self.repack_queries = [q["sql"] for q in ctx.captured_queries]
+        return [
+            c.name
+            for c in Channel.objects.filter(
+                auto_created=True, auto_created_by=account
+            ).order_by("channel_number")
+        ]
+
+    def test_repack_honours_provider_number_sort(self):
+        # Fail signature: B, D, A, C, NoNum = repack fell back to id order.
+        self.assertEqual(
+            self._repack_by_provider_number(),
+            ["A", "B", "C", "D", "NoNum"],
+        )
+
+    def test_repack_provider_number_sort_reverse_keeps_numberless_last(self):
+        self.assertEqual(
+            self._repack_by_provider_number(reverse=True),
+            ["D", "C", "B", "A", "NoNum"],
+        )
+
+    def test_repack_provider_number_sort_reads_streams_in_one_query(self):
+        # Five channels, one query for their streams: no per-channel lookup.
+        self._repack_by_provider_number()
+        stream_reads = [
+            q for q in self.repack_queries
+            if 'FROM "dispatcharr_channels_channelstream"' in q
+        ]
+        self.assertEqual(len(stream_reads), 1)
 
 
 class OverrideChannelNumberValidationTests(TestCase):

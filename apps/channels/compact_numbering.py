@@ -23,8 +23,14 @@ channel_number override - the override is honored as a reservation.
 import logging
 
 from django.db import transaction
+from django.db.models import Prefetch
 
-from .models import Channel, ChannelOverride, ChannelGroupM3UAccount
+from .models import (
+    Channel,
+    ChannelOverride,
+    ChannelGroupM3UAccount,
+    ChannelStream,
+)
 from apps.m3u.tasks import _next_available_number
 from core.utils import ensure_custom_properties_dict
 from core.utils import (
@@ -330,13 +336,21 @@ def _repack_inner(group_relation):
     # renumber's own UPDATEs and autovacuum, so the default "provider" sort
     # below would repack channels into different numbers on every sync.
     # id order is creation order, which tracks the provider stream order.
-    channels = list(
-        Channel.objects.filter(
-            auto_created=True,
-            auto_created_by_id=account_id,
-            channel_group_id__in=group_ids,
-        ).select_related("override").order_by("id")
-    )
+    channel_qs = Channel.objects.filter(
+        auto_created=True,
+        auto_created_by_id=account_id,
+        channel_group_id__in=group_ids,
+    ).select_related("override").order_by("id")
+    if sort_order == "stream_chno":
+        # One extra query for every channel's streams, ordered like the
+        # channel's own stream list, so the sort key below is not N+1.
+        channel_qs = channel_qs.prefetch_related(
+            Prefetch(
+                "channelstream_set",
+                queryset=ChannelStream.objects.select_related("stream"),
+            )
+        )
+    channels = list(channel_qs)
 
     visible = []
     hidden = []
@@ -367,6 +381,21 @@ def _repack_inner(group_relation):
         visible.sort(
             key=lambda c: (c.updated_at, c.id),
             reverse=sort_reverse,
+        )
+    elif sort_order == "stream_chno":
+        # Provider number of the channel's first stream. Channels without
+        # one sort last in both directions; id breaks ties.
+        def _provider_number(channel):
+            links = channel.channelstream_set.all()
+            return links[0].stream.stream_chno if links else None
+
+        sign = -1 if sort_reverse else 1
+        visible.sort(
+            key=lambda c: (
+                _provider_number(c) is None,
+                sign * (_provider_number(c) or 0),
+                c.id,
+            )
         )
 
     # Exclude every channel in this group: the pinned channel's raw value
