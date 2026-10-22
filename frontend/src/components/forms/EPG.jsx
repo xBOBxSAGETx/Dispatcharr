@@ -19,6 +19,7 @@ import {
   ScrollArea,
   Table,
   Switch,
+  TagsInput,
   UnstyledButton,
 } from '@mantine/core';
 import { TriangleAlert, Trash2, Plus, Search } from 'lucide-react';
@@ -155,6 +156,66 @@ const AutoApplyEpgLogosSwitch = ({
       disabled={saving}
       size="sm"
     />
+  );
+};
+
+// ─── LIVE/NEW title marker (XMLTV) ──────────────────────────────────────────
+const LiveNewMarkerSettings = ({ sourceId, customProperties }) => {
+  const storeCustomProps = useEPGsStore((s) =>
+    sourceId ? s.epgs[sourceId]?.custom_properties : null
+  );
+  const resolvedCp = storeCustomProps || customProperties || {};
+
+  const [enabled, setEnabled] = useState(!!resolvedCp.add_live_new_markers);
+  const [sportsTitles, setSportsTitles] = useState(
+    resolvedCp.live_marker_sports_titles || []
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const newCp = storeCustomProps || customProperties || {};
+    setEnabled(!!newCp.add_live_new_markers);
+    setSportsTitles(newCp.live_marker_sports_titles || []);
+  }, [storeCustomProps, customProperties]);
+
+  const saveSetting = async (key, value) => {
+    setSaving(true);
+    try {
+      await API.updateEpgSourceSettings(sourceId, { [key]: value });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Box>
+      <Switch
+        label="Add LIVE/NEW marker to titles"
+        description="On each refresh, adds a LIVE marker to sports titles that are not repeats and a NEW marker to other programmes the source flags as new. Titles are changed as they are imported."
+        checked={enabled}
+        onChange={(e) => {
+          setEnabled(e.currentTarget.checked);
+          saveSetting('add_live_new_markers', e.currentTarget.checked);
+        }}
+        disabled={saving}
+        size="sm"
+        mb={enabled ? 'xs' : undefined}
+      />
+      {enabled && (
+        <TagsInput
+          label="Sports titles"
+          description="Programme titles that count as sports and get LIVE (for example NBA Basketball). The feed does not say which programmes are sports."
+          placeholder="Type a title and press Enter"
+          value={sportsTitles}
+          onChange={(titles) => {
+            setSportsTitles(titles);
+            saveSetting('live_marker_sports_titles', titles);
+          }}
+          disabled={saving}
+          size="sm"
+        />
+      )}
+    </Box>
   );
 };
 
@@ -966,6 +1027,13 @@ const EPG = ({ epg = null, isOpen, onClose }) => {
                   sourceId={savedEpgId}
                   customProperties={sdCustomProps}
                   description="When enabled, matched channels are updated from EPG channel icons on each refresh. When disabled, icons are still stored in EPG data and can be applied manually via Set Logo from EPG."
+                />
+              )}
+
+              {savedEpgId && sourceType === 'xmltv' && (
+                <LiveNewMarkerSettings
+                  sourceId={savedEpgId}
+                  customProperties={sdCustomProps}
                 />
               )}
 

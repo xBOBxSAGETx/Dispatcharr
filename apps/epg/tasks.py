@@ -1637,6 +1637,46 @@ def _defer_parse_programs_for_tvg_id(epg_id, force, defer_retry, reason):
     return "Deferred"
 
 
+# Unicode superscript markers appended to titles when an EPG source has
+# "Add LIVE/NEW marker to titles" enabled.
+LIVE_TITLE_MARKER = 'ᴸᶦᵛᵉ'
+NEW_TITLE_MARKER = 'ᴺᵉʷ'
+
+
+def get_live_new_marker_sports_titles(epg_source):
+    """Return the sports titles for the LIVE/NEW marker, or None when it is off.
+
+    Stored in ``EPGSource.custom_properties``: ``add_live_new_markers`` turns the
+    feature on and ``live_marker_sports_titles`` lists the programme titles that
+    count as sports (the XMLTV feed has no sports flag of its own).
+    """
+    cp = epg_source.custom_properties or {}
+    if not cp.get('add_live_new_markers'):
+        return None
+    return set(cp.get('live_marker_sports_titles') or [])
+
+
+def apply_live_new_marker(title, sports_titles, custom_props):
+    """Append a LIVE or NEW marker to a programme title.
+
+    Sports titles get LIVE unless the programme is ``<previously-shown/>``;
+    any other title gets NEW when the programme has ``<new/>``. Everything else
+    is returned unchanged. A title that already ends in its marker is not marked
+    twice, so re-parsing never doubles it. ``sports_titles`` is None when the
+    source has the feature off.
+    """
+    if sports_titles is None:
+        return title
+    props = custom_props or {}
+    if title in sports_titles:
+        marker = None if props.get('previously_shown') else LIVE_TITLE_MARKER
+    else:
+        marker = NEW_TITLE_MARKER if props.get('new') else None
+    if marker is None or title.endswith(marker):
+        return title
+    return f'{title} {marker}'
+
+
 @shared_task(time_limit=3600, soft_time_limit=3500)
 def parse_programs_for_tvg_id(epg_id, force=False, _defer_retry=0):
     epg_obj = None
@@ -1792,6 +1832,7 @@ def parse_programs_for_tvg_id(epg_id, force=False, _defer_retry=0):
             # to the DB the way the whole-source bulk parse does.
             programs_to_create = []
             title_max_length = ProgramData._meta.get_field('title').max_length
+            marker_sports_titles = get_live_new_marker_sports_titles(epg_source)
     
             try:
                 # Open the file directly - no need to check compression
@@ -1847,6 +1888,9 @@ def parse_programs_for_tvg_id(epg_id, force=False, _defer_retry=0):
                                         custom_properties_json['season_episode_source'] = 'description'
                                         desc = cleaned_desc
     
+                            title = apply_live_new_marker(
+                                title, marker_sports_titles, custom_properties_json
+                            )
                             programs_to_create.append(ProgramData(
                                 epg=epg,
                                 start_time=start_time,
@@ -2383,6 +2427,7 @@ def parse_programs_for_source(epg_source, tvg_id=None):
                    f"(skipping {total_epg_count - mapped_count} unmapped EPG entries)")
 
         title_max_length = ProgramData._meta.get_field('title').max_length
+        marker_sports_titles = get_live_new_marker_sports_titles(epg_source)
 
         # Get the file path
         file_path = epg_source.extracted_file_path if epg_source.extracted_file_path else epg_source.file_path
@@ -2500,6 +2545,9 @@ def parse_programs_for_source(epg_source, tvg_id=None):
                                     custom_properties_json['season_episode_source'] = 'description'
                                     desc = cleaned_desc
 
+                        title = apply_live_new_marker(
+                            title, marker_sports_titles, custom_properties_json
+                        )
                         epg_id = tvg_id_to_epg_id[channel_id]
                         programs_batch.append(ProgramData(
                             epg_id=epg_id,

@@ -13,6 +13,7 @@ vi.mock('../../../api.js', () => ({
     deleteSDLineup: vi.fn().mockResolvedValue({ success: true }),
     searchSDLineups: vi.fn().mockResolvedValue([]),
     updateSDSettings: vi.fn().mockResolvedValue({}),
+    updateEpgSourceSettings: vi.fn().mockResolvedValue({}),
   },
 }));
 
@@ -244,6 +245,15 @@ vi.mock('@mantine/core', async () => ({
       {label}
     </label>
   ),
+  TagsInput: ({ label, value, onChange }) => (
+    <input
+      data-testid={`tags-${label?.toString().toLowerCase().replace(/\s+/g, '-')}`}
+      value={(value ?? []).join(',')}
+      onChange={(e) =>
+        onChange?.(e.target.value ? e.target.value.split(',') : [])
+      }
+    />
+  ),
   UnstyledButton: ({ children, onClick, ...props }) => (
     <button type="button" onClick={onClick} {...props}>
       {children}
@@ -272,6 +282,7 @@ vi.mock('@mantine/core', async () => ({
 // ── Imports after mocks ────────────────────────────────────────────────────────
 import EPG from '../EPG';
 import * as DummyEpgUtils from '../../../utils/forms/DummyEpgUtils.js';
+import API from '../../../api.js';
 import { useForm } from '@mantine/form';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -688,6 +699,81 @@ describe('EPG', () => {
       expect(
         screen.getByTestId('checkbox-enable-this-epg-source')
       ).toBeInTheDocument();
+    });
+  });
+
+  // ── LIVE/NEW title marker ──────────────────────────────────────────────────
+
+  describe('LIVE/NEW title marker', () => {
+    const markerSwitch = 'switch-add-live/new-marker-to-titles';
+
+    it('shows the switch off for a saved XMLTV source', () => {
+      render(<EPG {...defaultProps({ epg: makeEPG() })} />);
+      expect(screen.getByTestId(markerSwitch)).not.toBeChecked();
+      expect(screen.queryByTestId('tags-sports-titles')).toBeNull();
+    });
+
+    it('is not shown before the source is saved', () => {
+      render(<EPG {...defaultProps()} />);
+      expect(screen.queryByTestId(markerSwitch)).toBeNull();
+    });
+
+    it('reflects the saved setting and its sports titles', () => {
+      render(
+        <EPG
+          {...defaultProps({
+            epg: makeEPG({
+              custom_properties: {
+                add_live_new_markers: true,
+                live_marker_sports_titles: ['NBA Basketball'],
+              },
+            }),
+          })}
+        />
+      );
+      expect(screen.getByTestId(markerSwitch)).toBeChecked();
+      expect(screen.getByTestId('tags-sports-titles')).toHaveValue(
+        'NBA Basketball'
+      );
+    });
+
+    it('saves add_live_new_markers when the switch is toggled', async () => {
+      render(<EPG {...defaultProps({ epg: makeEPG() })} />);
+      fireEvent.click(screen.getByTestId(markerSwitch));
+      await waitFor(() =>
+        expect(API.updateEpgSourceSettings).toHaveBeenCalledWith(1, {
+          add_live_new_markers: true,
+        })
+      );
+    });
+
+    it('saves the sports titles when they change', async () => {
+      render(
+        <EPG
+          {...defaultProps({
+            epg: makeEPG({ custom_properties: { add_live_new_markers: true } }),
+          })}
+        />
+      );
+      fireEvent.change(screen.getByTestId('tags-sports-titles'), {
+        target: { value: 'NHL Hockey' },
+      });
+      await waitFor(() =>
+        expect(API.updateEpgSourceSettings).toHaveBeenCalledWith(1, {
+          live_marker_sports_titles: ['NHL Hockey'],
+        })
+      );
+    });
+
+    it('is not shown for a Schedules Direct source', () => {
+      render(
+        <EPG
+          {...defaultProps({
+            epg: makeEPG({ source_type: 'schedules_direct' }),
+          })}
+        />
+      );
+      expect(screen.queryByTestId(markerSwitch)).toBeNull();
     });
   });
 });
