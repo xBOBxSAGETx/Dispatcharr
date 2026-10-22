@@ -361,13 +361,19 @@ def _handle_redirect_stream(channel, channel_id, client_id, user, allowed_m3u_pr
         )
         return JsonResponse({"error": error_msg, "waited": wait_duration}, status=503)
 
+    # Stream the redirect finally points at (an alternate after a failed
+    # validation); read by stream_xc to tell XC from other providers.
+    chosen_stream_id = resolved_stream_id
+
     def _redirect_response(url):
         if url.startswith(("rtsp://", "rtp://", "udp://")):
             logger.info(f"[{client_id}] Using manual redirect for non-HTTP protocol")
             response = HttpResponse(status=301)
             response["Location"] = url
-            return response
-        return HttpResponseRedirect(url)
+        else:
+            response = HttpResponseRedirect(url)
+        response.provider_stream_id = chosen_stream_id
+        return response
 
     # The reserved slot is released once the decision is made (before the client
     # follows the redirect), including when validation or alternate lookup raises.
@@ -417,6 +423,7 @@ def _handle_redirect_stream(channel, channel_id, client_id, user, allowed_m3u_pr
 
                 if is_valid:
                     logger.info(f"[{client_id}] Alternate stream #{alt['stream_id']} validated successfully")
+                    chosen_stream_id = alt["stream_id"]
                     break
                 logger.warning(
                     f"[{client_id}] Alternate stream #{alt['stream_id']} failed validation: {message}"
@@ -1064,6 +1071,18 @@ def _xc_live_channel_or_error(request, username, password, channel_id):
     return user, channel, None
 
 
+def _stream_is_xc_account(stream_id):
+    """Whether *stream_id* belongs to an XC M3U account (own login only goes
+    to XC providers; other hosts get the URL exactly as stock builds it)."""
+    if not stream_id:
+        return False
+    from apps.m3u.models import M3UAccount
+
+    return Stream.objects.filter(
+        id=stream_id, m3u_account__account_type=M3UAccount.Types.XC
+    ).exists()
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def stream_xc(request, username, password, channel_id):
@@ -1095,7 +1114,11 @@ def stream_xc(request, username, password, channel_id):
         # Opt-in per user: the provider redirect carries the viewer's own XC
         # login instead of the account's. A URL without a login segment is
         # left as is (same as without the opt-in).
-        if isinstance(response, HttpResponseRedirect) and uses_own_xc_login(user):
+        if (
+            isinstance(response, HttpResponseRedirect)
+            and uses_own_xc_login(user)
+            and _stream_is_xc_account(getattr(response, "provider_stream_id", None))
+        ):
             own_url = swap_xc_login(response.url, user, ("live",))
             if own_url is not None:
                 response = HttpResponseRedirect(own_url)

@@ -24,10 +24,10 @@ def _user(level=User.UserLevel.STANDARD, **props):
     return User(username="viewer1", user_level=level, custom_properties=props)
 
 
-def _selected(url):
+def _selected(url, account_type="XC"):
     return {
         "content_obj": MagicMock(),
-        "m3u_account": MagicMock(),
+        "m3u_account": MagicMock(account_type=account_type),
         "m3u_profile": MagicMock(id=1, max_streams=5),
         "current_connections": 0,
         "final_stream_url": url,
@@ -102,6 +102,27 @@ class VodRedirectOwnLoginTests(_VodBase):
                 response = self._redirect(content_type, user, ODD_URL)
                 self.assertEqual(response.status_code, 503)
                 self.assertNotIsInstance(response, HttpResponseRedirect)
+
+    def test_non_xc_account_url_is_left_alone(self):
+        from apps.proxy.vod_proxy.views import stream_vod
+
+        user = _user(xc_password="viewerpw1", use_own_xc_login=True)
+        url = _account_url("movie")
+        with patch(
+            "core.models.CoreSettings.is_default_stream_profile_redirect",
+            return_value=True,
+        ), patch(
+            f"{VIEWS}._select_vod_stream",
+            return_value=_selected(url, account_type="STD"),
+        ):
+            response = stream_vod(
+                self._request(),
+                content_type="movie",
+                content_id="uuid",
+                session_id=None,
+                user=user,
+            )
+        self.assertEqual(response["Location"], url)
 
     def test_shape_mismatch_still_redirects_when_not_opted_in(self):
         response = self._redirect("movie", _user(xc_password="viewerpw1"), ODD_URL)

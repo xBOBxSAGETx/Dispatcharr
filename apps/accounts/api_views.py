@@ -45,6 +45,7 @@ from dispatcharr.utils import (
 )
 
 from .models import User
+from .xc_auth import XC_OWN_LOGIN_KEY
 from .serializers import (
     UserSerializer,
     GroupSerializer,
@@ -451,6 +452,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 "vod_series_enabled",
                 "dvr_access",
                 "allowed_m3u_profile_ids",
+                XC_OWN_LOGIN_KEY,
             }
             cp = request.data.get("custom_properties")
             if isinstance(cp, dict):

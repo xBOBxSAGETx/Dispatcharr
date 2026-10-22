@@ -72,6 +72,17 @@ class UserMeAdminOnlyPropsTests(TestCase):
         self.user.refresh_from_db()
         self.assertNotIn("xc_password", self.user.custom_properties or {})
 
+    def test_cannot_toggle_use_own_xc_login_via_me(self):
+        for value in (True, False):
+            response = self.client.patch(
+                self.url,
+                {"custom_properties": {"use_own_xc_login": value}},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 200)
+            self.user.refresh_from_db()
+            self.assertNotIn("use_own_xc_login", self.user.custom_properties or {})
+
     def test_cannot_change_user_level_via_me(self):
         response = self.client.patch(
             self.url,

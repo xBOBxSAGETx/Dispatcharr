@@ -17,7 +17,7 @@ def _user(level=User.UserLevel.STANDARD, **props):
 
 @patch("apps.proxy.live_proxy.views.close_old_connections")
 class StreamXcOwnLoginTests(SimpleTestCase):
-    def _call(self, user, provider_response=None):
+    def _call(self, user, provider_response=None, is_xc=True):
         from apps.proxy.live_proxy.views import stream_xc
 
         channel = MagicMock(uuid="channel-uuid")
@@ -30,6 +30,9 @@ class StreamXcOwnLoginTests(SimpleTestCase):
         ), patch(
             "apps.proxy.live_proxy.views.stream_ts",
             return_value=provider_response,
+        ), patch(
+            "apps.proxy.live_proxy.views._stream_is_xc_account",
+            return_value=is_xc,
         ):
             return stream_xc(request, "viewer1", "viewerpw1", "5.ts")
 
@@ -38,6 +41,10 @@ class StreamXcOwnLoginTests(SimpleTestCase):
         response = self._call(user)
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], OWN_URL)
+
+    def test_non_xc_account_url_is_left_alone(self, _close):
+        user = _user(xc_password="viewerpw1", use_own_xc_login=True)
+        self.assertEqual(self._call(user, is_xc=False)["Location"], ACCOUNT_URL)
 
     def test_toggle_off_keeps_account_login(self, _close):
         user = _user(xc_password="viewerpw1")

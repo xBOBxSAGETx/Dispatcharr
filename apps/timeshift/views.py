@@ -28,7 +28,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 
 from apps.accounts.authentication import ApiKeyAuthentication, QueryParamJWTAuthentication
-from apps.accounts.xc_auth import authorize_xc_client
+from apps.accounts.xc_auth import authorize_xc_client, uses_own_xc_login
 from apps.channels.access import get_channel_for_user
 from apps.channels.utils import get_channel_catchup_streams, is_catchup_enabled
 from apps.m3u.connection_pool import (
@@ -1705,6 +1705,12 @@ def _select_catchup_redirect_url(
             continue
         if not (server_url and xc_username and xc_password):
             continue
+
+        # Opt-in per user: the redirect carries the viewer's own login instead
+        # of the account's (catch-up only ever targets XC accounts).
+        if uses_own_xc_login(user):
+            xc_username = user.username
+            xc_password = user.custom_properties["xc_password"]
 
         creds = TimeshiftCredentials(server_url, xc_username, xc_password)
         return build_timeshift_redirect_url(

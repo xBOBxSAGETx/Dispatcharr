@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from apps.vod.models import Movie, Series, Episode, M3UMovieRelation, M3UEpisodeRelation
 from apps.vod.utils import is_vod_movies_enabled, is_vod_series_enabled
-from apps.m3u.models import M3UAccountProfile
+from apps.m3u.models import M3UAccount, M3UAccountProfile
 from apps.proxy.vod_proxy.multi_worker_connection_manager import MultiWorkerVODConnectionManager, infer_content_type_from_url, get_vod_client_stop_key
 from .utils import get_client_info
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -176,15 +176,20 @@ def _vod_session_path_redirect(request, session_id, profile_id=None, user=None):
     )
 
 
-def _with_own_xc_login(url, user):
+def _with_own_xc_login(url, user, m3u_account):
     """Put the requesting user's own XC login into a VOD provider URL.
 
-    Only applies when the user opted in (see ``uses_own_xc_login``); any other
-    user gets *url* back unchanged. Fails closed: an opted-in user whose URL
+    Only applies when the user opted in (see ``uses_own_xc_login``) and the
+    stream's M3U account is an XC account; anything else gets *url* back
+    unchanged. Fails closed: an opted-in user whose URL
     has no ``/movie|series/<login>/<password>/`` segment gets None, never the
     account's login. Callers answer 503 on None.
     """
-    if not url or not uses_own_xc_login(user):
+    if (
+        not url
+        or not uses_own_xc_login(user)
+        or getattr(m3u_account, "account_type", None) != M3UAccount.Types.XC
+    ):
         return url
     own_url = swap_xc_login(url, user, ("movie", "series"))
     if own_url is None:
@@ -857,7 +862,9 @@ def stream_vod(
                         content_id,
                     )
                     return HttpResponse("No available stream", status=503)
-                redirect_url = _with_own_xc_login(selected["final_stream_url"], user)
+                redirect_url = _with_own_xc_login(
+                    selected["final_stream_url"], user, selected.get("m3u_account")
+                )
                 if not redirect_url:
                     return HttpResponse("VOD temporarily unavailable", status=503)
                 logger.info(
@@ -913,7 +920,9 @@ def stream_vod(
         m3u_account = selected["m3u_account"]
         m3u_profile = selected["m3u_profile"]
         current_connections = selected["current_connections"]
-        final_stream_url = _with_own_xc_login(selected["final_stream_url"], user)
+        final_stream_url = _with_own_xc_login(
+            selected["final_stream_url"], user, m3u_account
+        )
         if not final_stream_url:
             return HttpResponse("VOD temporarily unavailable", status=503)
 
@@ -1017,7 +1026,7 @@ def head_vod(request, content_type, content_id, session_id=None, profile_id=None
                         )
                         return HttpResponse("No available stream", status=503)
                     redirect_url = _with_own_xc_login(
-                        selected["final_stream_url"], user
+                        selected["final_stream_url"], user, selected.get("m3u_account")
                     )
                     if not redirect_url:
                         return HttpResponse("VOD temporarily unavailable", status=503)
@@ -1065,7 +1074,9 @@ def head_vod(request, content_type, content_id, session_id=None, profile_id=None
         content_obj = selected["content_obj"]
         m3u_account = selected["m3u_account"]
         m3u_profile = selected["m3u_profile"]
-        final_stream_url = _with_own_xc_login(selected["final_stream_url"], user)
+        final_stream_url = _with_own_xc_login(
+            selected["final_stream_url"], user, m3u_account
+        )
         if not final_stream_url:
             return HttpResponse("VOD temporarily unavailable", status=503)
 

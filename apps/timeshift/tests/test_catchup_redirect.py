@@ -91,7 +91,14 @@ class CatchupRedirectViewTests(SimpleTestCase):
         )
         redis_cls = stack.enter_context(patch.object(views, "RedisClient"))
         stack.enter_context(
-            patch.object(views, "authorize_xc_client", return_value=(MagicMock(id=1), None))
+            patch.object(
+                views,
+                "authorize_xc_client",
+                return_value=(
+                    MagicMock(id=1, user_level=1, custom_properties={}),
+                    None,
+                ),
+            )
         )
         stack.enter_context(
             patch.object(views, "get_channel_catchup_streams", return_value=[stream])
@@ -359,3 +366,64 @@ class SessionRedirectCacheControlTests(SimpleTestCase):
     def test_lifetime_is_bounded_and_covers_a_long_programme(self):
         self.assertGreaterEqual(views.CATCHUP_SESSION_REDIRECT_CACHE_SECONDS, 4 * 3600)
         self.assertLessEqual(views.CATCHUP_SESSION_REDIRECT_CACHE_SECONDS, 24 * 3600)
+
+
+class CatchupRedirectOwnLoginTests(SimpleTestCase):
+    """Opt-in per-user XC login in the catch-up provider redirect."""
+
+    _enter_common = CatchupRedirectViewTests._enter_common
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _redirect(self, user):
+        request = self.factory.get(_proxy_url(session_id=None))
+        with ExitStack() as stack:
+            self._enter_common(stack, is_redirect=True)
+            stack.enter_context(
+                patch.object(
+                    views, "authorize_xc_client", return_value=(user, None)
+                )
+            )
+            stack.enter_context(
+                patch("apps.m3u.utils.get_allowed_m3u_profiles", return_value=None)
+            )
+            return views.timeshift_proxy(
+                request, "u", "p", "40", "2026-06-08:17-00", "8.ts",
+            )
+
+    @staticmethod
+    def _user(level=None, **props):
+        from apps.accounts.models import User
+
+        return User(
+            username="viewer1",
+            user_level=level if level is not None else User.UserLevel.STANDARD,
+            custom_properties=props,
+        )
+
+    def test_opted_in_user_gets_own_login(self):
+        response = self._redirect(
+            self._user(xc_password="viewerpw1", use_own_xc_login=True)
+        )
+        self.assertEqual(
+            response["Location"],
+            "http://provider.test/timeshift/viewer1/viewerpw1/40/2026-06-08:17-00/22372.ts",
+        )
+
+    def test_controls_keep_account_login(self):
+        from apps.accounts.models import User
+
+        controls = {
+            "toggle off": self._user(xc_password="viewerpw1"),
+            "admin": self._user(
+                User.UserLevel.ADMIN, xc_password="viewerpw1", use_own_xc_login=True
+            ),
+            "no xc_password": self._user(use_own_xc_login=True),
+        }
+        for name, user in controls.items():
+            with self.subTest(user=name):
+                self.assertEqual(
+                    self._redirect(user)["Location"],
+                    "http://provider.test/timeshift/pu/pp/40/2026-06-08:17-00/22372.ts",
+                )
