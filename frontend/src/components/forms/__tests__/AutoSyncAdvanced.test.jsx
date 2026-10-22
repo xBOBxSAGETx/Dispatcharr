@@ -765,6 +765,47 @@ describe('AutoSyncAdvanced', () => {
     });
   });
 
+  // ── Channel sort order ─────────────────────────────────────────────────────
+  describe('channel sort order', () => {
+    it('lists Provider number alongside the existing sort options', () => {
+      renderComponent();
+      const options = Array.from(
+        screen.getByTestId('Channel Sort Order').querySelectorAll('option')
+      ).map((o) => [o.value, o.textContent]);
+      expect(options).toEqual([
+        ['__default__', 'Provider Order (Default)'],
+        ['name', 'Name'],
+        ['tvg_id', 'TVG ID'],
+        ['updated_at', 'Updated At'],
+        ['stream_chno', 'Provider number'],
+      ]);
+    });
+
+    it('saves stream_chno as channel_sort_order when Provider number is chosen', () => {
+      const { onApplyGroupChange } = renderComponent();
+      fireEvent.change(screen.getByTestId('Channel Sort Order'), {
+        target: { value: 'stream_chno' },
+      });
+      expect(onApplyGroupChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          custom_properties: expect.objectContaining({
+            channel_sort_order: 'stream_chno',
+            channel_sort_reverse: false,
+          }),
+        })
+      );
+    });
+
+    it('shows the reverse checkbox once Provider number is selected', () => {
+      renderComponent({
+        group: makeGroup({
+          custom_properties: { channel_sort_order: 'stream_chno' },
+        }),
+      });
+      expect(screen.getByTestId('Reverse sort order')).toBeInTheDocument();
+    });
+  });
+
   // ── Regex options (MultiSelect) ────────────────────────────────────────────
   describe('regex options MultiSelect', () => {
     it('calls getRegexOptions when find input changes', () => {

@@ -2379,6 +2379,28 @@ def sync_auto_channels(account_id, scan_start_time=None):
                         current_streams = current_streams.order_by(
                             f"{order_prefix}updated_at"
                         )
+                elif channel_sort_order == "stream_chno":
+                    # The provider's own number (get_live_streams "num"), not
+                    # the stream id, which only follows provider order when
+                    # the import preserved it. Streams without a number sort
+                    # last in both directions; id breaks ties.
+                    if streams_is_list:
+                        sign = -1 if channel_sort_reverse else 1
+                        current_streams.sort(
+                            key=lambda s: (
+                                s.stream_chno is None,
+                                sign * (s.stream_chno or 0),
+                                s.id,
+                            )
+                        )
+                    else:
+                        chno = models.F("stream_chno")
+                        chno = (
+                            chno.desc(nulls_last=True)
+                            if channel_sort_reverse
+                            else chno.asc(nulls_last=True)
+                        )
+                        current_streams = current_streams.order_by(chno, "id")
                 else:
                     logger.warning(
                         f"Unknown channel_sort_order '{channel_sort_order}' for group '{channel_group.name}'. Using provider order."
