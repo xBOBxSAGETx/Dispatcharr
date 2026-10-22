@@ -20,7 +20,11 @@ from .redis_keys import RedisKeys
 from apps.channels.access import channels_queryset_for_user
 from apps.channels.models import Channel, Stream
 from apps.accounts.models import User
-from apps.accounts.xc_auth import authorize_xc_client
+from apps.accounts.xc_auth import (
+    authorize_xc_client,
+    swap_xc_login,
+    uses_own_xc_login,
+)
 from core.models import CoreSettings, PROXY_PROFILE_NAME, StreamProfile
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -1081,13 +1085,21 @@ def stream_xc(request, username, password, channel_id):
             force_format = 'hls'
         else:
             force_format = None
-        return stream_ts(
+        response = stream_ts(
             request._request,
             str(channel.uuid),
             user,
             force_output_format=force_format,
             check_network=False,
         )
+        # Opt-in per user: the provider redirect carries the viewer's own XC
+        # login instead of the account's. A URL without a login segment is
+        # left as is (same as without the opt-in).
+        if isinstance(response, HttpResponseRedirect) and uses_own_xc_login(user):
+            own_url = swap_xc_login(response.url, user, ("live",))
+            if own_url is not None:
+                response = HttpResponseRedirect(own_url)
+        return response
     except Http404:
         raise
     finally:

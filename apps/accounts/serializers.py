@@ -114,6 +114,10 @@ class UserSerializer(serializers.ModelSerializer):
                 "XC password may only contain letters, numbers, periods (.), underscores (_), at signs (@), and hyphens (-)"
             )
 
+        use_own_xc_login = value.get("use_own_xc_login")
+        if use_own_xc_login is not None and not isinstance(use_own_xc_login, bool):
+            raise serializers.ValidationError("use_own_xc_login must be a boolean")
+
         allowed_m3u_profile_ids = value.get("allowed_m3u_profile_ids")
         if allowed_m3u_profile_ids is not None and (
             not isinstance(allowed_m3u_profile_ids, list)

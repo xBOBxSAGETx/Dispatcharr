@@ -617,6 +617,34 @@ describe('User', () => {
       ).not.toBeInTheDocument();
     });
 
+    it('shows the own XC login toggle for admin', () => {
+      setupMocks({ authUser: makeAdminUser() });
+      render(
+        <User
+          isOpen={true}
+          onClose={vi.fn()}
+          user={makeRegularUser({ id: 2 })}
+        />
+      );
+      expect(
+        screen.getByText("Use the user's own XC login in redirects")
+      ).toBeInTheDocument();
+    });
+
+    it('hides the own XC login toggle for non-admin', () => {
+      setupMocks({ authUser: makeRegularUser() });
+      render(
+        <User
+          isOpen={true}
+          onClose={vi.fn()}
+          user={makeRegularUser({ id: 5 })}
+        />
+      );
+      expect(
+        screen.queryByText("Use the user's own XC login in redirects")
+      ).not.toBeInTheDocument();
+    });
+
     it('shows Output Profile Override for admin', () => {
       setupMocks({ authUser: makeAdminUser() });
       render(

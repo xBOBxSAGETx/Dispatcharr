@@ -94,3 +94,28 @@ class UserSerializerValidationTests(TestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("custom_properties", serializer.errors)
+
+    def test_use_own_xc_login_accepts_booleans(self):
+        for flag in (True, False):
+            serializer = UserSerializer(
+                data={
+                    "username": "joe",
+                    "password": "testpassword123",
+                    "custom_properties": {"use_own_xc_login": flag},
+                }
+            )
+
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_use_own_xc_login_rejects_non_booleans(self):
+        for bad in ("yes", 1, [True]):
+            serializer = UserSerializer(
+                data={
+                    "username": "joe",
+                    "password": "testpassword123",
+                    "custom_properties": {"use_own_xc_login": bad},
+                }
+            )
+
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("custom_properties", serializer.errors)

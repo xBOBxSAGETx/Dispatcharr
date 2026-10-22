@@ -21,7 +21,11 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.permissions import AllowAny
 from apps.accounts.models import User
 from apps.accounts.permissions import IsAdmin
-from apps.accounts.xc_auth import authorize_xc_client
+from apps.accounts.xc_auth import (
+    authorize_xc_client,
+    swap_xc_login,
+    uses_own_xc_login,
+)
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from apps.accounts.authentication import ApiKeyAuthentication, QueryParamJWTAuthentication
 from apps.proxy.utils import check_user_stream_limits
@@ -170,6 +174,25 @@ def _vod_session_path_redirect(request, session_id, profile_id=None, user=None):
             "Cache-Control": _session_redirect_cache_control(request),
         },
     )
+
+
+def _with_own_xc_login(url, user):
+    """Put the requesting user's own XC login into a VOD provider URL.
+
+    Only applies when the user opted in (see ``uses_own_xc_login``); any other
+    user gets *url* back unchanged. Fails closed: an opted-in user whose URL
+    has no ``/movie|series/<login>/<password>/`` segment gets None, never the
+    account's login. Callers answer 503 on None.
+    """
+    if not url or not uses_own_xc_login(user):
+        return url
+    own_url = swap_xc_login(url, user, ("movie", "series"))
+    if own_url is None:
+        logger.error(
+            "[VOD-LOGIN] Provider URL has no login segment for user %s; refusing",
+            user.username,
+        )
+    return own_url
 
 
 def _select_vod_stream(
@@ -834,12 +857,14 @@ def stream_vod(
                         content_id,
                     )
                     return HttpResponse("No available stream", status=503)
+                redirect_url = _with_own_xc_login(selected["final_stream_url"], user)
+                if not redirect_url:
+                    return HttpResponse("VOD temporarily unavailable", status=503)
                 logger.info(
-                    "[VOD-REDIRECT] Redirecting to provider URL: %s",
-                    selected["final_stream_url"],
+                    "[VOD-REDIRECT] Redirecting to provider URL: %s", redirect_url
                 )
                 close_old_connections()
-                return HttpResponseRedirect(selected["final_stream_url"])
+                return HttpResponseRedirect(redirect_url)
 
             new_session_id = f"vod_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
             logger.info(f"[VOD-SESSION] Creating new session: {new_session_id}")
@@ -888,7 +913,9 @@ def stream_vod(
         m3u_account = selected["m3u_account"]
         m3u_profile = selected["m3u_profile"]
         current_connections = selected["current_connections"]
-        final_stream_url = selected["final_stream_url"]
+        final_stream_url = _with_own_xc_login(selected["final_stream_url"], user)
+        if not final_stream_url:
+            return HttpResponse("VOD temporarily unavailable", status=503)
 
         logger.info(f"[VOD-CONTENT] Found content: {getattr(content_obj, 'name', 'Unknown')}")
         logger.info(f"[VOD-ACCOUNT] Using M3U account: {m3u_account.name}")
@@ -989,11 +1016,15 @@ def head_vod(request, content_type, content_id, session_id=None, profile_id=None
                             content_id,
                         )
                         return HttpResponse("No available stream", status=503)
-                    logger.info(
-                        "[VOD-HEAD] Redirecting to provider URL: %s",
-                        selected["final_stream_url"],
+                    redirect_url = _with_own_xc_login(
+                        selected["final_stream_url"], user
                     )
-                    return HttpResponseRedirect(selected["final_stream_url"])
+                    if not redirect_url:
+                        return HttpResponse("VOD temporarily unavailable", status=503)
+                    logger.info(
+                        "[VOD-HEAD] Redirecting to provider URL: %s", redirect_url
+                    )
+                    return HttpResponseRedirect(redirect_url)
 
             path_parts = request.path.rstrip('/').split('/')
             if matched_session_id:
@@ -1034,7 +1065,9 @@ def head_vod(request, content_type, content_id, session_id=None, profile_id=None
         content_obj = selected["content_obj"]
         m3u_account = selected["m3u_account"]
         m3u_profile = selected["m3u_profile"]
-        final_stream_url = selected["final_stream_url"]
+        final_stream_url = _with_own_xc_login(selected["final_stream_url"], user)
+        if not final_stream_url:
+            return HttpResponse("VOD temporarily unavailable", status=503)
 
         # Make a small range GET request to get content length since providers don't support HEAD
         # We'll use a tiny range to minimize data transfer but get the headers we need

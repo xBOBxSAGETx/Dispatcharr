@@ -70,6 +70,7 @@ export const userToFormValues = (user) => {
         ? user.channel_profiles.map((id) => `${id}`)
         : ['0'],
     xc_password: customProps.xc_password || '',
+    use_own_xc_login: customProps.use_own_xc_login === true,
     output_format: customProps.output_format || '',
     output_profile: customProps.output_profile
       ? `${customProps.output_profile}`
@@ -112,6 +113,9 @@ export const formValuesToPayload = (values, existingUser) => {
 
   customProps.xc_password = payload.xc_password || '';
   delete payload.xc_password;
+
+  customProps.use_own_xc_login = payload.use_own_xc_login === true;
+  delete payload.use_own_xc_login;
 
   customProps.output_format = payload.output_format || null;
   delete payload.output_format;
@@ -207,6 +211,7 @@ export const getFormInitialValues = () => {
     stream_limit: 0,
     password: '',
     xc_password: '',
+    use_own_xc_login: false,
     output_format: '',
     output_profile: '',
     allowed_m3u_profile_ids: null,

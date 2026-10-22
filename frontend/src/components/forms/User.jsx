@@ -513,6 +513,16 @@ const User = ({ user = null, isOpen, onClose }) => {
                 }
               />
               {isAdmin && (
+                <Switch
+                  label="Use the user's own XC login in redirects"
+                  description="When on, provider redirects for this user (live, movies, series) carry this user's own XC username and password instead of the account's, so each viewer plays on their own provider line. Needs an XC password; admins are not affected."
+                  {...form.getInputProps('use_own_xc_login', {
+                    type: 'checkbox',
+                  })}
+                  key={form.key('use_own_xc_login')}
+                />
+              )}
+              {isAdmin && (
                 <Select
                   label="Output Format Override"
                   description="Override the system default output format for this user. Clear to use system default."

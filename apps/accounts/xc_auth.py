@@ -7,6 +7,7 @@ constant-time and rules stay in one place.
 
 import hmac
 import logging
+import re
 
 from django.http import JsonResponse
 
@@ -20,6 +21,10 @@ logger = logging.getLogger(__name__)
 XC_AUTH_NETWORK = "network"
 XC_AUTH_CREDENTIALS = "credentials"
 XC_AUTH_RATE_LIMIT = "rate_limit"
+
+# ``custom_properties`` key for the per-user "use my own XC login in redirects"
+# opt-in. Off (absent) by default.
+XC_OWN_LOGIN_KEY = "use_own_xc_login"
 
 
 def xc_password_matches(user, password):
@@ -36,6 +41,38 @@ def xc_password_matches(user, password):
     if not expected:
         return False
     return hmac.compare_digest(str(expected).encode(), str(password).encode())
+
+
+def uses_own_xc_login(user):
+    """Whether provider URLs handed to *user* should carry their own XC login.
+
+    True only for a non-admin user who turned the opt-in on and has an
+    ``xc_password``. Admins, internal requests (no user) and users without an
+    XC password always keep the account's login.
+    """
+    if user is None or user.user_level >= User.UserLevel.ADMIN:
+        return False
+    props = user.custom_properties or {}
+    return props.get(XC_OWN_LOGIN_KEY) is True and bool(props.get("xc_password"))
+
+
+def swap_xc_login(url, user, content_paths):
+    """Return *url* with the ``/<user>/<pass>/`` segment set to *user*'s login.
+
+    Only the first ``/<content_path>/<login>/<password>/`` segment is replaced.
+    Returns None when the URL has no such segment, so the caller can refuse
+    rather than hand out the account's login.
+    """
+    pattern = r"/(%s)/[^/]+/[^/]+/" % "|".join(map(re.escape, content_paths))
+    username = user.username
+    password = user.custom_properties["xc_password"]
+    new_url, count = re.subn(
+        pattern,
+        lambda m: f"/{m.group(1)}/{username}/{password}/",
+        url,
+        count=1,
+    )
+    return new_url if count else None
 
 
 def get_xc_user(username):

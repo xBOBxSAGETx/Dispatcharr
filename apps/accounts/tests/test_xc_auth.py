@@ -8,6 +8,8 @@ from apps.accounts.xc_auth import (
     XC_AUTH_NETWORK,
     XC_AUTH_RATE_LIMIT,
     authorize_xc_client,
+    swap_xc_login,
+    uses_own_xc_login,
     xc_auth_error_response,
     xc_password_matches,
 )
@@ -45,6 +47,74 @@ class XcPasswordMatchesTests(TestCase):
         user = User(custom_properties={"xc_password": "caf\u00e9"})
         self.assertTrue(xc_password_matches(user, "caf\u00e9"))
         self.assertFalse(xc_password_matches(user, "cafe"))
+
+
+class UsesOwnXcLoginTests(SimpleTestCase):
+    def _user(self, level=User.UserLevel.STANDARD, **props):
+        return User(username="viewer", user_level=level, custom_properties=props)
+
+    def test_opted_in_non_admin_with_password(self):
+        self.assertTrue(
+            uses_own_xc_login(self._user(xc_password="pw", use_own_xc_login=True))
+        )
+
+    def test_streamer_is_eligible_too(self):
+        user = self._user(User.UserLevel.STREAMER, xc_password="pw", use_own_xc_login=True)
+        self.assertTrue(uses_own_xc_login(user))
+
+    def test_off_by_default(self):
+        self.assertFalse(uses_own_xc_login(self._user(xc_password="pw")))
+        self.assertFalse(
+            uses_own_xc_login(self._user(xc_password="pw", use_own_xc_login=False))
+        )
+
+    def test_truthy_non_boolean_is_not_enough(self):
+        self.assertFalse(
+            uses_own_xc_login(self._user(xc_password="pw", use_own_xc_login="true"))
+        )
+
+    def test_admin_never_swaps(self):
+        user = self._user(User.UserLevel.ADMIN, xc_password="pw", use_own_xc_login=True)
+        self.assertFalse(uses_own_xc_login(user))
+
+    def test_needs_xc_password(self):
+        self.assertFalse(uses_own_xc_login(self._user(use_own_xc_login=True)))
+        self.assertFalse(
+            uses_own_xc_login(self._user(xc_password="", use_own_xc_login=True))
+        )
+
+    def test_no_user_or_no_properties(self):
+        self.assertFalse(uses_own_xc_login(None))
+        self.assertFalse(uses_own_xc_login(User(username="x", custom_properties=None)))
+
+
+class SwapXcLoginTests(SimpleTestCase):
+    def setUp(self):
+        self.user = User(
+            username="viewer",
+            user_level=User.UserLevel.STANDARD,
+            custom_properties={"xc_password": "pw", "use_own_xc_login": True},
+        )
+
+    def test_swaps_each_content_path(self):
+        for path in ("live", "movie", "series"):
+            url = f"http://h.example:8080/{path}/acct/secret/55.ts"
+            self.assertEqual(
+                swap_xc_login(url, self.user, ("live", "movie", "series")),
+                f"http://h.example:8080/{path}/viewer/pw/55.ts",
+            )
+
+    def test_only_listed_paths_are_swapped(self):
+        url = "http://h.example/live/acct/secret/55.ts"
+        self.assertIsNone(swap_xc_login(url, self.user, ("movie", "series")))
+
+    def test_no_login_segment_returns_none(self):
+        self.assertIsNone(swap_xc_login("http://h.example/odd/55.ts", self.user, ("live",)))
+
+    def test_password_with_regex_characters_is_taken_literally(self):
+        self.user.custom_properties["xc_password"] = "a.b_c@d-e"
+        out = swap_xc_login("http://h.example/live/acct/secret/55.ts", self.user, ("live",))
+        self.assertEqual(out, "http://h.example/live/viewer/a.b_c@d-e/55.ts")
 
 
 class XcAuthErrorResponseTests(SimpleTestCase):

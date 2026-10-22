@@ -191,9 +191,21 @@ describe('UserUtils', () => {
       expect(result.epg_days).toBe(0);
     });
 
+    it('reads the own-XC-login toggle only when it is exactly true', () => {
+      const on = userToFormValues(
+        makeUser({ custom_properties: { use_own_xc_login: true } })
+      );
+      const junk = userToFormValues(
+        makeUser({ custom_properties: { use_own_xc_login: 'yes' } })
+      );
+      expect(on.use_own_xc_login).toBe(true);
+      expect(junk.use_own_xc_login).toBe(false);
+    });
+
     it('maps custom_properties fields with defaults', () => {
       const result = userToFormValues(makeUser({ custom_properties: {} }));
       expect(result.xc_password).toBe('');
+      expect(result.use_own_xc_login).toBe(false);
       expect(result.output_format).toBe('');
       expect(result.output_profile).toBe('');
       expect(result.allowed_m3u_profile_ids).toBeNull();
@@ -296,6 +308,20 @@ describe('UserUtils', () => {
       const result = formValuesToPayload(makeValues(), null);
       expect(result.xc_password).toBeUndefined();
       expect(result.custom_properties.xc_password).toBe('mypass');
+    });
+
+    it('moves use_own_xc_login into custom_properties as a boolean', () => {
+      const on = formValuesToPayload(
+        makeValues({ use_own_xc_login: true }),
+        null
+      );
+      expect(on.use_own_xc_login).toBeUndefined();
+      expect(on.custom_properties.use_own_xc_login).toBe(true);
+
+      const off = formValuesToPayload(makeValues(), {
+        custom_properties: { use_own_xc_login: true },
+      });
+      expect(off.custom_properties.use_own_xc_login).toBe(false);
     });
 
     it('moves output_format into custom_properties', () => {
@@ -522,6 +548,7 @@ describe('UserUtils', () => {
         stream_limit: 0,
         password: '',
         xc_password: '',
+        use_own_xc_login: false,
         output_format: '',
         output_profile: '',
         allowed_m3u_profile_ids: null,
