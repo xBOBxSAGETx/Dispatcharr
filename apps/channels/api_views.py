@@ -57,6 +57,7 @@ from .models import (
     ChannelGroup,
     ChannelStream,
     Logo,
+    ChannelOverride,
     ChannelProfile,
     ChannelProfileMembership,
     Recording,
@@ -2455,6 +2456,13 @@ class ChannelViewSet(viewsets.ModelViewSet):
     # ─────────────────────────────────────────────────────────
     # 7) Set EPG and Refresh
     # ─────────────────────────────────────────────────────────
+    @staticmethod
+    def _reset_override_cache(channel):
+        """Forget the cached reverse-OneToOne so the serializer re-reads it."""
+        channel._state.fields_cache.pop("override", None)
+        if hasattr(channel, "_channel_override_cache"):
+            delattr(channel, "_channel_override_cache")
+
     @extend_schema(
         methods=["POST"],
         description="Set EPG data for a channel and refresh program data",
@@ -2473,6 +2481,17 @@ class ChannelViewSet(viewsets.ModelViewSet):
 
         # Handle removing EPG link
         if epg_data_id in (None, "", "0", 0):
+            if channel.auto_created:
+                # Drop the user's pick; sync repopulates the channel's own
+                # EPG from the provider on the next refresh.
+                override = ChannelOverride.objects.filter(channel=channel).first()
+                if override is not None and override.epg_data_id is not None:
+                    override.epg_data = None
+                    if override.has_any_override():
+                        override.save()
+                    else:
+                        override.delete()
+                    self._reset_override_cache(channel)
             channel.epg_data = None
             channel.save(update_fields=["epg_data"])
             return Response(
@@ -2485,10 +2504,20 @@ class ChannelViewSet(viewsets.ModelViewSet):
 
             epg_data = EPGData.objects.get(pk=epg_data_id)
 
-            # Set the EPG data and save. refresh_epg_programs (post_save) queues
-            # parse_programs_for_tvg_id for non-dummy sources — no second dispatch here.
-            channel.epg_data = epg_data
-            channel.save(update_fields=["epg_data"])
+            if channel.auto_created:
+                # Sync rewrites Channel.epg_data on every refresh, so keep the
+                # pick on the override row, as bulk edit does. The override
+                # post_save signal queues the programme import.
+                ChannelOverride.objects.update_or_create(
+                    channel=channel, defaults={"epg_data": epg_data}
+                )
+                self._reset_override_cache(channel)
+            else:
+                # Set the EPG data and save. refresh_epg_programs (post_save)
+                # queues parse_programs_for_tvg_id for non-dummy sources — no
+                # second dispatch here.
+                channel.epg_data = epg_data
+                channel.save(update_fields=["epg_data"])
 
             status_message = None
             if epg_data.epg_source.source_type != 'dummy':
@@ -2671,6 +2700,21 @@ class ChannelViewSet(viewsets.ModelViewSet):
             c.id: c for c in Channel.objects.filter(id__in=channel_updates.keys())
         }
 
+        # Auto-synced channels keep the pick on ChannelOverride (sync rewrites
+        # Channel.epg_data on every refresh); manual channels use the field.
+        existing_overrides = {
+            o.channel_id: o
+            for o in ChannelOverride.objects.filter(
+                channel_id__in=[
+                    cid for cid, c in channels_dict.items() if c.auto_created
+                ]
+            )
+        }
+        overrides_to_create = []
+        overrides_to_update = []
+        overrides_to_delete = []
+        override_channel_ids = set()
+
         # Collect channels whose EPG assignment actually changes
         channels_to_update = []
         changed_epg_ids = set()
@@ -2680,6 +2724,33 @@ class ChannelViewSet(viewsets.ModelViewSet):
                 continue
 
             channel = channels_dict[channel_id]
+            if channel.auto_created:
+                override = existing_overrides.get(channel_id)
+                if epg_data_id:
+                    if override is None:
+                        overrides_to_create.append(
+                            ChannelOverride(
+                                channel_id=channel_id, epg_data_id=epg_data_id
+                            )
+                        )
+                    elif override.epg_data_id != epg_data_id:
+                        override.epg_data_id = epg_data_id
+                        overrides_to_update.append(override)
+                    else:
+                        continue
+                    changed_epg_ids.add(epg_data_id)
+                    override_channel_ids.add(channel_id)
+                    continue
+                # Removing the link: drop the pick, then clear the channel's
+                # own EPG below (sync refills it from the provider).
+                if override is not None and override.epg_data_id is not None:
+                    override.epg_data_id = None
+                    if override.has_any_override():
+                        overrides_to_update.append(override)
+                    else:
+                        overrides_to_delete.append(override.id)
+                    override_channel_ids.add(channel_id)
+
             if channel.epg_data_id == epg_data_id:
                 continue
 
@@ -2697,7 +2768,31 @@ class ChannelViewSet(viewsets.ModelViewSet):
                     batch_size=100
                 )
 
-        channels_updated = len(channels_to_update)
+        if overrides_to_create or overrides_to_update or overrides_to_delete:
+            with transaction.atomic():
+                if overrides_to_update:
+                    ChannelOverride.objects.bulk_update(
+                        overrides_to_update,
+                        fields=["epg_data_id"],
+                        batch_size=100,
+                    )
+                if overrides_to_create:
+                    ChannelOverride.objects.bulk_create(
+                        overrides_to_create, batch_size=100
+                    )
+                if overrides_to_delete:
+                    ChannelOverride.objects.filter(
+                        id__in=overrides_to_delete
+                    ).delete()
+            # bulk_* bypasses post_save, so drop the XMLTV chunk cache here.
+            from apps.output.streaming_chunk_cache import (
+                invalidate_epg_chunk_cache,
+            )
+            invalidate_epg_chunk_cache()
+
+        channels_updated = len(
+            {c.id for c in channels_to_update} | override_channel_ids
+        )
 
         from apps.epg.tasks import dispatch_program_refresh_for_epg_ids
 
