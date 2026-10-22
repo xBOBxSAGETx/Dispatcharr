@@ -1,6 +1,7 @@
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from .models import EPGSource, EPGData
+from .title_markers import get_live_new_marker_sports_titles
 from .tasks import refresh_epg_data, delete_epg_refresh_task_by_id, fetch_schedules_direct_stations
 from core.scheduling import create_or_update_periodic_task, delete_periodic_task
 from core.utils import is_protected_path, send_websocket_update
@@ -154,6 +155,38 @@ def delete_refresh_task(sender, instance, **kwargs):
             delete_epg_refresh_task_by_id(instance.id)
     except Exception as e:
         logger.error(f"Error in delete_refresh_task signal handler: {str(e)}", exc_info=True)
+
+def _live_new_marker_config(custom_properties):
+    """What the XMLTV output reads from a source's custom_properties for the LIVE/NEW marker."""
+    return get_live_new_marker_sports_titles(EPGSource(custom_properties=custom_properties))
+
+
+@receiver(pre_save, sender=EPGSource)
+def remember_live_new_marker_config(sender, instance, update_fields=None, **kwargs):
+    """Remember the stored marker setting so post_save can tell whether it changed."""
+    instance._live_new_marker_before = None
+    if not instance.pk or (update_fields is not None and 'custom_properties' not in update_fields):
+        return
+    stored = list(
+        EPGSource.objects.filter(pk=instance.pk).values_list('custom_properties', flat=True)
+    )
+    if stored:
+        instance._live_new_marker_before = (_live_new_marker_config(stored[0]),)
+
+
+@receiver(post_save, sender=EPGSource)
+def invalidate_xmltv_cache_on_marker_change(sender, instance, created, **kwargs):
+    """The XMLTV chunk cache holds the marked titles, so retire it when the marker setting changes."""
+    before = getattr(instance, '_live_new_marker_before', None)
+    instance._live_new_marker_before = None
+    if created or before is None:
+        return
+    if _live_new_marker_config(instance.custom_properties) == before[0]:
+        return
+    from apps.output.streaming_chunk_cache import invalidate_epg_chunk_cache
+
+    invalidate_epg_chunk_cache()
+
 
 @receiver(pre_save, sender=EPGSource)
 def update_status_on_active_change(sender, instance, **kwargs):

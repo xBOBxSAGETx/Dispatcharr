@@ -28,6 +28,7 @@ from apps.output.dummy_epg import (
     resolve_channel_parse_name,
 )
 from apps.output.epg import generate_epg
+from apps.epg.title_markers import apply_live_new_marker, get_live_new_marker_sports_titles
 from apps.vod.image_proxy import (
     is_proxyable_image_url,
     prefer_relation_artwork,
@@ -956,9 +957,13 @@ def xc_get_epg(request, user, short=False):
         archive_window = None
 
     _epg_utc = dt_timezone.utc
+    # LIVE/NEW marker is applied to stored programmes only; generated dummy dicts are left alone.
+    marker_sports = get_live_new_marker_sports_titles(effective_epg_data.epg_source) if effective_epg_data else None
 
     for program in programs:
         title = program['title'] if isinstance(program, dict) else program.title
+        if marker_sports is not None and not isinstance(program, dict):
+            title = apply_live_new_marker(title, marker_sports, program.custom_properties)
         description = program['description'] if isinstance(program, dict) else program.description
 
         start = program["start_time"] if isinstance(program, dict) else program.start_time

@@ -18,6 +18,10 @@ from apps.channels.access import channels_queryset_for_user
 from apps.channels.models import Channel, ChannelProfile
 from apps.channels.utils import format_channel_number, resolve_epg_output_window
 from apps.epg.models import ProgramData
+from apps.epg.title_markers import (
+    apply_live_new_marker,
+    get_live_new_marker_sports_titles,
+)
 from apps.epg.utils import sd_poster_proxy_path
 from apps.output.dummy_epg import (
     build_channel_logo_url,
@@ -147,6 +151,9 @@ def generate_epg(request, profile_name=None, user=None):
 
         dummy_program_list = []
         real_epg_map = {}
+        # EPG id -> sports titles, for EPGs whose source has the LIVE/NEW marker on.
+        # Taken from the epg_source already loaded with each channel (no extra query).
+        marker_sports_by_epg = {}
         channel_xml_batch = []
 
         for channel in channels:
@@ -234,6 +241,9 @@ def generate_epg(request, profile_name=None, user=None):
                 dummy_program_list.append((channel_id, pattern_match_name, effective_epg_data.epg_source))
             else:
                 real_epg_map.setdefault(effective_epg_data_id, []).append(channel_id)
+                marker_sports = get_live_new_marker_sports_titles(effective_epg_data.epg_source)
+                if marker_sports is not None:
+                    marker_sports_by_epg[effective_epg_data_id] = marker_sports
 
         if channel_xml_batch:
             yield '\n'.join(channel_xml_batch) + '\n'
@@ -324,6 +334,7 @@ def generate_epg(request, profile_name=None, user=None):
                         current_epg_id = epg_id
                         channel_ids_for_epg = real_epg_map[epg_id]
                         escaped_primary_cid = html.escape(channel_ids_for_epg[0])
+                        marker_sports = marker_sports_by_epg.get(epg_id)
 
                     # DB datetimes are UTC (USE_TZ=True, TIME_ZONE=UTC); format
                     # directly instead of strftime("%Y%m%d%H%M%S %z"), which is
@@ -334,7 +345,11 @@ def generate_epg(request, profile_name=None, user=None):
                     stop_str = f"{et.year:04d}{et.month:02d}{et.day:02d}{et.hour:02d}{et.minute:02d}{et.second:02d} +0000"
 
                     program_xml = [f'  <programme start="{start_str}" stop="{stop_str}" channel="{escaped_primary_cid}">']
-                    program_xml.append(f'    <title>{html.escape(prog["title"])}</title>')
+                    title = prog["title"]
+                    if marker_sports is not None:
+                        # Output only: the stored title is never changed.
+                        title = apply_live_new_marker(title, marker_sports, prog['custom_properties'])
+                    program_xml.append(f'    <title>{html.escape(title)}</title>')
 
                     if prog['sub_title']:
                         program_xml.append(f"    <sub-title>{html.escape(prog['sub_title'])}</sub-title>")
