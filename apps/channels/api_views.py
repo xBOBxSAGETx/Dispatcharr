@@ -4453,6 +4453,7 @@ class SeriesRulePreviewAPIView(APIView):
     def post(self, request):
         from apps.epg.models import ProgramData
         from apps.epg.query_utils import parse_text_query
+        from apps.epg.title_markers import exact_title_q
         from apps.channels.managers import program_is_new_for_rule
 
         data = request.data or {}
@@ -4501,7 +4502,7 @@ class SeriesRulePreviewAPIView(APIView):
 
         if title:
             if title_mode == "exact":
-                qs = qs.filter(title__iexact=title)
+                qs = qs.filter(exact_title_q(title))
             else:
                 qs = qs.filter(parse_text_query(
                     "title", title,

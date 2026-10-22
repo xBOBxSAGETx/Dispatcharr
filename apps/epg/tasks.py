@@ -38,6 +38,7 @@ from apps.epg.utils import (
     send_epg_update,
 )
 from apps.epg.sd_utils import SD_BASE_URL
+from apps.epg.title_markers import LIVE_TITLE_MARKER, NEW_TITLE_MARKER
 from apps.epg.sd_tasks import (
     SD_BULK_GUIDE_FETCH_THRESHOLD,
     SD_DAYS_TO_FETCH,
@@ -1637,12 +1638,6 @@ def _defer_parse_programs_for_tvg_id(epg_id, force, defer_retry, reason):
     return "Deferred"
 
 
-# Unicode superscript markers appended to titles when an EPG source has
-# "Add LIVE/NEW marker to titles" enabled.
-LIVE_TITLE_MARKER = 'ᴸᶦᵛᵉ'
-NEW_TITLE_MARKER = 'ᴺᵉʷ'
-
-
 def get_live_new_marker_sports_titles(epg_source):
     """Return the sports titles for the LIVE/NEW marker, or None when it is off.
 
@@ -1656,14 +1651,16 @@ def get_live_new_marker_sports_titles(epg_source):
     return set(cp.get('live_marker_sports_titles') or [])
 
 
-def apply_live_new_marker(title, sports_titles, custom_props):
+def apply_live_new_marker(title, sports_titles, custom_props, max_length=None):
     """Append a LIVE or NEW marker to a programme title.
 
     Sports titles get LIVE unless the programme is ``<previously-shown/>``;
     any other title gets NEW when the programme has ``<new/>``. Everything else
-    is returned unchanged. A title that already ends in its marker is not marked
-    twice, so re-parsing never doubles it. ``sports_titles`` is None when the
-    source has the feature off.
+    is returned unchanged. Each parse starts from the raw feed title; a title
+    that already ends in its marker (a feed that carries it) is not marked
+    twice. ``sports_titles`` is None when the source has the feature off. With
+    ``max_length`` the base title is shortened so title plus marker fits and the
+    marker is never cut off.
     """
     if sports_titles is None:
         return title
@@ -1674,7 +1671,10 @@ def apply_live_new_marker(title, sports_titles, custom_props):
         marker = NEW_TITLE_MARKER if props.get('new') else None
     if marker is None or title.endswith(marker):
         return title
-    return f'{title} {marker}'
+    suffix = f' {marker}'
+    if max_length is not None:
+        title = title[:max(max_length - len(suffix), 0)]
+    return f'{title}{suffix}'
 
 
 @shared_task(time_limit=3600, soft_time_limit=3500)
@@ -1889,7 +1889,8 @@ def parse_programs_for_tvg_id(epg_id, force=False, _defer_retry=0):
                                         desc = cleaned_desc
     
                             title = apply_live_new_marker(
-                                title, marker_sports_titles, custom_properties_json
+                                title, marker_sports_titles, custom_properties_json,
+                                title_max_length,
                             )
                             programs_to_create.append(ProgramData(
                                 epg=epg,
@@ -2546,7 +2547,8 @@ def parse_programs_for_source(epg_source, tvg_id=None):
                                     desc = cleaned_desc
 
                         title = apply_live_new_marker(
-                            title, marker_sports_titles, custom_properties_json
+                            title, marker_sports_titles, custom_properties_json,
+                            title_max_length,
                         )
                         epg_id = tvg_id_to_epg_id[channel_id]
                         programs_batch.append(ProgramData(

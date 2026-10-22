@@ -30,6 +30,7 @@ from apps.channels.epg_matching import (
 from apps.channels.models import Channel
 from apps.epg.models import EPGData
 from core.models import CoreSettings
+from apps.epg.title_markers import exact_title_q, strip_title_marker
 from core.utils import acquire_task_lock, release_task_lock
 
 from django.db import InterfaceError, OperationalError, close_old_connections
@@ -596,7 +597,7 @@ def _evaluate_series_rules_locked(tvg_id, result):
             if tvg_id_val and st and et:
                 existing_program_keys.add((str(tvg_id_val), str(st), str(et)))
             if tvg_id_val:
-                title_l = str(prog_data.get("title") or "").strip().lower()
+                title_l = strip_title_marker(str(prog_data.get("title") or "")).strip().lower()
                 ident = _identity_of(prog_data, prog_data.get("sub_title"))
                 if ident:
                     existing_episode_keys.add((str(tvg_id_val), title_l, ident))
@@ -668,7 +669,7 @@ def _evaluate_series_rules_locked(tvg_id, result):
 
         if series_title:
             if title_mode == "exact":
-                programs_qs = programs_qs.filter(title__iexact=series_title)
+                programs_qs = programs_qs.filter(exact_title_q(series_title))
             else:
                 use_regex = title_mode == "regex"
                 whole_words = title_mode == "search"
@@ -763,7 +764,7 @@ def _evaluate_series_rules_locked(tvg_id, result):
         #
         def _episode_key(p: "ProgramData"):
             ident = _identity_of(p.custom_properties or {}, p.sub_title)
-            base = f"{p.tvg_id or ''}|{(p.title or '').strip().lower()}"  # series scope
+            base = f"{p.tvg_id or ''}|{strip_title_marker(p.title).strip().lower()}"  # series scope
             if ident:
                 return f"{base}|{ident}"
             # No reliable episode identity; use the program id to avoid over-merging
@@ -816,7 +817,7 @@ def _evaluate_series_rules_locked(tvg_id, result):
                 # snapshots from before season/episode were stored) never enter
                 # existing_episode_keys, and skipping the window for identifiable
                 # candidates would double-book the drifted listing onto one path.
-                prog_title_l = str(prog.title or "").strip().lower()
+                prog_title_l = strip_title_marker(str(prog.title or "")).strip().lower()
                 prog_ident = _identity_of(prog.custom_properties or {}, prog.sub_title)
                 idx_key = (str(prog.tvg_id), prog_title_l)
                 if prog_ident and (

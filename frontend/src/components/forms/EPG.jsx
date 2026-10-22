@@ -213,6 +213,7 @@ const LiveNewMarkerSettings = ({ sourceId, customProperties }) => {
           }}
           disabled={saving}
           size="sm"
+          splitChars={[]}
         />
       )}
     </Box>

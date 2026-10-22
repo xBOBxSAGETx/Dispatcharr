@@ -245,8 +245,9 @@ vi.mock('@mantine/core', async () => ({
       {label}
     </label>
   ),
-  TagsInput: ({ label, value, onChange }) => (
+  TagsInput: ({ label, value, onChange, splitChars }) => (
     <input
+      data-split-chars={JSON.stringify(splitChars ?? null)}
       data-testid={`tags-${label?.toString().toLowerCase().replace(/\s+/g, '-')}`}
       value={(value ?? []).join(',')}
       onChange={(e) =>
@@ -745,6 +746,19 @@ describe('EPG', () => {
           add_live_new_markers: true,
         })
       );
+    });
+
+    it('lets a sports title contain a comma (no split characters)', () => {
+      render(
+        <EPG
+          {...defaultProps({
+            epg: makeEPG({ custom_properties: { add_live_new_markers: true } }),
+          })}
+        />
+      );
+      expect(
+        screen.getByTestId('tags-sports-titles').getAttribute('data-split-chars')
+      ).toBe('[]');
     });
 
     it('saves the sports titles when they change', async () => {

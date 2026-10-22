@@ -177,6 +177,17 @@ class ApplyLiveNewMarkerTests(TestCase):
             f'Drama Series {NEW}',
         )
 
+    def test_marker_survives_the_title_length_limit(self):
+        from apps.epg.tasks import apply_live_new_marker
+
+        marked = apply_live_new_marker('A' * 300, {'A' * 300}, {}, 255)
+        self.assertEqual(len(marked), 255)
+        self.assertTrue(marked.endswith(f' {LIVE}'))
+        # a short title is not shortened
+        self.assertEqual(
+            apply_live_new_marker('Short', {'Short'}, {}, 255), f'Short {LIVE}'
+        )
+
     def test_none_sports_titles_means_feature_off(self):
         from apps.epg.tasks import apply_live_new_marker
 
