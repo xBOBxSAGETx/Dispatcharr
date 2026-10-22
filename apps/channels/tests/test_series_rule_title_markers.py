@@ -63,7 +63,7 @@ class SeriesRuleTitleMarkerTests(TestCase):
         result = evaluate_series_rules_impl()
         self.assertEqual(result["scheduled"], 1)
 
-    def test_episode_key_ignores_marker(self):
+    def test_strip_title_marker_helper(self):
         from apps.epg.title_markers import strip_title_marker
 
         self.assertEqual(strip_title_marker(f"Test Show {NEW}"), "Test Show")
@@ -88,3 +88,54 @@ class SeriesRuleTitleMarkerTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.json()["total"], 3)
+
+    def _admin_client(self):
+        admin = User.objects.create_user(username="dvr_admin2", password="x")
+        admin.user_level = User.UserLevel.ADMIN
+        admin.save()
+        client = APIClient()
+        client.force_authenticate(admin)
+        return client
+
+    @patch("apps.channels.tasks.prefetch_recording_artwork")
+    @patch("apps.channels.signals.schedule_recording_task", return_value="t")
+    @patch("apps.channels.signals.revoke_task")
+    def test_deleting_rule_removes_future_recordings_with_marked_title(self, *_mocks):
+        start = self.now + timedelta(hours=3)
+        channel = Channel.objects.get(channel_number=1)
+        for title in (f"Test Show {NEW}", f"Test Show {LIVE}", "Test Show"):
+            Recording.objects.create(
+                channel=channel, start_time=start, end_time=start + timedelta(hours=1),
+                custom_properties={"program": {"tvg_id": "test.channel.1", "title": title}},
+            )
+        resp = self._admin_client().delete(
+            "/api/channels/series-rules/?tvg_id=test.channel.1&title=Test Show"
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(Recording.objects.count(), 0)
+
+    @patch("apps.channels.tasks.prefetch_recording_artwork")
+    @patch("apps.channels.signals.schedule_recording_task", return_value="t")
+    @patch("apps.channels.tasks.acquire_task_lock", return_value=True)
+    @patch("apps.channels.tasks.release_task_lock")
+    def test_rule_made_from_marked_title_is_stored_clean_and_matches_unmarked(self, *_mocks):
+        from apps.channels.tasks import evaluate_series_rules_impl
+
+        CoreSettings.set_dvr_series_rules([])
+        client = self._admin_client()
+        resp = client.post(
+            "/api/channels/series-rules/",
+            {"tvg_id": "test.channel.1", "mode": "all", "title": f"Test Show {NEW}"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        rules = CoreSettings.get_dvr_series_rules()
+        self.assertEqual([r["title"] for r in rules], ["Test Show"])
+        self._program("Test Show", 2)
+        self.assertEqual(evaluate_series_rules_impl()["scheduled"], 1)
+        # deleting by the marked guide title removes the same rule
+        resp = client.delete(
+            f"/api/channels/series-rules/?tvg_id=test.channel.1&title=Test Show {NEW}"
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(CoreSettings.get_dvr_series_rules(), [])

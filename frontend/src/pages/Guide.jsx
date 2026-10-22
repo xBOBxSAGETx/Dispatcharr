@@ -65,6 +65,7 @@ import {
   calcProgressPct,
   sortChannels,
   evaluateSeriesRulesByTvgId,
+  stripTitleMarker,
 } from '../utils/guideUtils';
 import {
   KEEP_MS,
@@ -983,7 +984,7 @@ export default function TVChannelGuide({ startDate, endDate }) {
       await createSeriesRule({
         tvg_id: program.tvg_id,
         mode,
-        title: program.title,
+        title: stripTitleMarker(program.title),
         ...(tvgRecord?.epg_source
           ? { epg_source_id: tvgRecord.epg_source }
           : {}),

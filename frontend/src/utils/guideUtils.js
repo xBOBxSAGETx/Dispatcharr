@@ -301,11 +301,25 @@ export const fetchRules = async () => {
   return await API.listSeriesRules();
 };
 
+// Superscript markers added to titles by the EPG source's "Add LIVE/NEW
+// marker" option. Mirrors apps/epg/title_markers.py.
+const TITLE_MARKER_SUFFIXES = [
+  ' \u1d38\u1da6\u1d5b\u1d49',
+  ' \u1d3a\u1d49\u02b7',
+];
+
+export const stripTitleMarker = (title) => {
+  const t = title || '';
+  const suffix = TITLE_MARKER_SUFFIXES.find((s) => t.endsWith(s));
+  return suffix ? t.slice(0, -suffix.length) : t;
+};
+
 export const getRuleByProgram = (rules, program, epgSourceId = null) => {
+  const programTitle = stripTitleMarker(program.title);
   const matches = (rules || []).filter(
     (r) =>
       String(r.tvg_id) === String(program.tvg_id) &&
-      (!r.title || r.title === program.title)
+      (!r.title || stripTitleMarker(r.title) === programTitle)
   );
   if (matches.length === 0) return undefined;
   if (epgSourceId != null && epgSourceId !== '') {

@@ -757,7 +757,9 @@ describe('EPG', () => {
         />
       );
       expect(
-        screen.getByTestId('tags-sports-titles').getAttribute('data-split-chars')
+        screen
+          .getByTestId('tags-sports-titles')
+          .getAttribute('data-split-chars')
       ).toBe('[]');
     });
 

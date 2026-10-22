@@ -920,6 +920,27 @@ describe('guideUtils', () => {
       expect(result).toEqual(rules[0]);
     });
 
+    it('finds rule "X" from a marked airing "X ᴺᵉʷ" and the reverse', () => {
+      const plain = [{ tvg_id: 'tvg-1', title: 'Show' }];
+      expect(
+        guideUtils.getRuleByProgram(plain, {
+          tvg_id: 'tvg-1',
+          title: 'Show ᴺᵉʷ',
+        })
+      ).toEqual(plain[0]);
+      const marked = [{ tvg_id: 'tvg-1', title: 'Show ᴸᶦᵛᵉ' }];
+      expect(
+        guideUtils.getRuleByProgram(marked, { tvg_id: 'tvg-1', title: 'Show' })
+      ).toEqual(marked[0]);
+    });
+
+    it('stripTitleMarker removes only a trailing marker', () => {
+      expect(guideUtils.stripTitleMarker('Show ᴺᵉʷ')).toBe('Show');
+      expect(guideUtils.stripTitleMarker('Show ᴸᶦᵛᵉ')).toBe('Show');
+      expect(guideUtils.stripTitleMarker('Show')).toBe('Show');
+      expect(guideUtils.stripTitleMarker(undefined)).toBe('');
+    });
+
     it('prefers the sourced rule matching epgSourceId', () => {
       const rules = [
         { tvg_id: 'tvg-1', title: 'Show', epg_source_id: 11 },

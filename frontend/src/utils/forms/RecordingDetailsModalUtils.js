@@ -1,4 +1,5 @@
 import API from '../../api.js';
+import { stripTitleMarker } from '../guideUtils.js';
 
 export const getStatRows = (stats) => {
   return [
@@ -31,7 +32,7 @@ const filterByUpcoming = (arr, tvid, titleKey, toUserTime, userNow) => {
     const pr = cp.program || {};
 
     if ((pr.tvg_id || '') !== tvid) return false;
-    if ((pr.title || '').toLowerCase() !== titleKey) return false;
+    if (stripTitleMarker(pr.title).toLowerCase() !== titleKey) return false;
     // Include episodes that haven't ended yet (currently-airing + future)
     const et = toUserTime(r.end_time);
     return et.isAfter(userNow());
@@ -80,7 +81,7 @@ export const getUpcomingEpisodes = (
     ? allRecordings
     : Object.values(allRecordings || {});
   const tvid = program.tvg_id || '';
-  const titleKey = (program.title || '').toLowerCase();
+  const titleKey = stripTitleMarker(program.title).toLowerCase();
 
   const filtered = filterByUpcoming(arr, tvid, titleKey, toUserTime, userNow);
 

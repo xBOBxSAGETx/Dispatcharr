@@ -9,6 +9,7 @@ vi.mock('../../../utils/cards/RecordingCardUtils.js', () => ({
 
 vi.mock('../../../utils/guideUtils.js', () => ({
   deleteSeriesRuleByTvgId: vi.fn(),
+  stripTitleMarker: (title) => (title || '').replace(/ (ᴸᶦᵛᵉ|ᴺᵉʷ)$/, ''),
 }));
 
 vi.mock('../SeriesRuleEditorModal.jsx', () => ({
@@ -224,6 +225,23 @@ describe('ProgramRecordingModal', () => {
   describe('handleRemoveSeriesRule', () => {
     it('calls deleteSeriesRuleByTvgId with tvg_id and title', async () => {
       const program = makeProgram({ tvg_id: 'tvg-3', title: 'Rule Show' });
+      render(
+        <ProgramRecordingModal
+          {...defaultProps({ program, existingRuleMode: 'rule' })}
+        />
+      );
+      fireEvent.click(screen.getByText(/Remove series rule/i));
+      await waitFor(() => {
+        expect(deleteSeriesRuleByTvgId).toHaveBeenCalledWith(
+          'tvg-3',
+          'Rule Show',
+          undefined
+        );
+      });
+    });
+
+    it('removes the rule by the title without a LIVE/NEW marker', async () => {
+      const program = makeProgram({ tvg_id: 'tvg-3', title: 'Rule Show ᴺᵉʷ' });
       render(
         <ProgramRecordingModal
           {...defaultProps({ program, existingRuleMode: 'rule' })}

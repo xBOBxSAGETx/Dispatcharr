@@ -381,7 +381,13 @@ def future_recordings_for_series(tvg_id="", title="", epg_source_id=None):
     if tvg_id:
         qs = qs.filter(custom_properties__program__tvg_id=tvg_id)
     if title:
-        qs = qs.filter(custom_properties__program__title=title)
+        from apps.epg.title_markers import exact_title_q
+
+        qs = qs.filter(
+            exact_title_q(
+                title, field="custom_properties__program__title", lookup="exact"
+            )
+        )
     source_id = parse_optional_epg_source_id(epg_source_id)
     if source_id is not None:
         qs = qs.filter(

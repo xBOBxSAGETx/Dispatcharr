@@ -96,6 +96,7 @@ import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from apps.epg.models import EPGData
+from apps.epg.title_markers import strip_title_marker
 from apps.vod.models import Movie, Series
 from django.db.models import Q
 from django.http import HttpResponse, StreamingHttpResponse, FileResponse, Http404, JsonResponse, HttpResponseRedirect
@@ -4283,7 +4284,8 @@ class SeriesRulesAPIView(APIView):
         data = request.data or {}
         tvg_id = str(data.get("tvg_id") or "").strip()
         mode = (data.get("mode") or "all").lower()
-        title = data.get("title") or ""
+        # A rule made from a marked guide airing ("X ᴺᵉʷ") is stored as "X".
+        title = strip_title_marker(data.get("title") or "")
         title_mode = (data.get("title_mode") or "exact").lower()
         description = data.get("description") or ""
         description_mode = (data.get("description_mode") or "contains").lower()
@@ -4384,7 +4386,9 @@ class SeriesRulesAPIView(APIView):
 
         def _matches(r):
             tvg_match = str(r.get("tvg_id") or "") == tvg_id
-            title_match = title is None or str(r.get("title") or "") == title
+            title_match = title is None or strip_title_marker(
+                str(r.get("title") or "")
+            ) == strip_title_marker(title)
             if not (tvg_match and title_match):
                 return False
             if epg_source_id is None:

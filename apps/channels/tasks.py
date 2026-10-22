@@ -699,7 +699,7 @@ def _evaluate_series_rules_locked(tvg_id, result):
         # can add identity to the live listing of a slot that was identity-less
         # when it was first recorded.
         identity_less_keys = {
-            (str(p.tvg_id), str(p.title or "").strip().lower())
+            (str(p.tvg_id), strip_title_marker(str(p.title or "")).strip().lower())
             for p in programs
             if not _identity_of(p.custom_properties or {}, p.sub_title)
         }
@@ -707,7 +707,7 @@ def _evaluate_series_rules_locked(tvg_id, result):
         live_airings = {
             (str(p.tvg_id), p.start_time, p.end_time)
             for p in programs
-            if (str(p.tvg_id), str(p.title or "").strip().lower()) in relevant_index_keys
+            if (str(p.tvg_id), strip_title_marker(str(p.title or "")).strip().lower()) in relevant_index_keys
         }
         # One orphaned (identity-less) recording must resolve to at most one
         # replacement candidate. Without this, a recording whose slot drifted

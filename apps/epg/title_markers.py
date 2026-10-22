@@ -22,9 +22,14 @@ def strip_title_marker(title):
     return title
 
 
-def exact_title_q(title, field='title'):
-    """Case-insensitive exact title match that also accepts the marked forms."""
-    q = Q(**{f'{field}__iexact': title})
+def exact_title_q(title, field='title', lookup='iexact'):
+    """Exact title match that also accepts the marked forms.
+
+    A marker on the input is dropped first, so a rule made from a marked guide
+    airing ("X ᴺᵉʷ") still matches "X", "X ᴸᶦᵛᵉ" and "X ᴺᵉʷ".
+    """
+    title = strip_title_marker(title)
+    q = Q(**{f'{field}__{lookup}': title})
     for marker in TITLE_MARKERS:
-        q |= Q(**{f'{field}__iexact': f'{title} {marker}'})
+        q |= Q(**{f'{field}__{lookup}': f'{title} {marker}'})
     return q

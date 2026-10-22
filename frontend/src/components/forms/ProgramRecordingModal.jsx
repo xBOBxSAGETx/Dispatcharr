@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import { Modal, Flex, Button, Anchor } from '@mantine/core';
 import { deleteRecordingById } from '../../utils/cards/RecordingCardUtils.js';
 import { deleteSeriesAndRule } from '../../utils/cards/RecordingCardUtils.js';
-import { deleteSeriesRuleByTvgId } from '../../utils/guideUtils.js';
+import {
+  deleteSeriesRuleByTvgId,
+  stripTitleMarker,
+} from '../../utils/guideUtils.js';
 import SeriesRuleEditorModal from './SeriesRuleEditorModal.jsx';
 
 export default function ProgramRecordingModal({
@@ -38,7 +41,7 @@ export default function ProgramRecordingModal({
   const handleRemoveSeries = async () => {
     await deleteSeriesAndRule({
       tvg_id: program.tvg_id,
-      title: program.title,
+      title: stripTitleMarker(program.title),
       epg_source_id: ruleSourceId,
     });
     // recordings_refreshed WS event triggers the debounced fetchRecordings()
@@ -46,7 +49,11 @@ export default function ProgramRecordingModal({
   };
 
   const handleRemoveSeriesRule = async () => {
-    await deleteSeriesRuleByTvgId(program.tvg_id, program.title, ruleSourceId);
+    await deleteSeriesRuleByTvgId(
+      program.tvg_id,
+      stripTitleMarker(program.title),
+      ruleSourceId
+    );
     onExistingRuleModeChange(null);
     onClose();
   };
@@ -144,7 +151,7 @@ export default function ProgramRecordingModal({
             : program
               ? {
                   tvg_id: program.tvg_id,
-                  title: program.title,
+                  title: stripTitleMarker(program.title),
                   title_mode: 'exact',
                   mode: 'all',
                   ...(epgSourceId ? { epg_source_id: epgSourceId } : {}),
