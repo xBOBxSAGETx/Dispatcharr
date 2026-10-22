@@ -702,7 +702,7 @@ const AutoSyncAdvanced = ({
                   { value: 'name', label: 'Name' },
                   { value: 'tvg_id', label: 'TVG ID' },
                   { value: 'updated_at', label: 'Updated At' },
-                  { value: 'stream_chno', label: 'Provider number' },
+                  { value: 'stream_chno', label: 'Provider Number' },
                 ]}
                 searchable
                 size="xs"

@@ -777,7 +777,7 @@ describe('AutoSyncAdvanced', () => {
         ['name', 'Name'],
         ['tvg_id', 'TVG ID'],
         ['updated_at', 'Updated At'],
-        ['stream_chno', 'Provider number'],
+        ['stream_chno', 'Provider Number'],
       ]);
     });
 

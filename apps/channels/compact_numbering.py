@@ -347,7 +347,9 @@ def _repack_inner(group_relation):
         channel_qs = channel_qs.prefetch_related(
             Prefetch(
                 "channelstream_set",
-                queryset=ChannelStream.objects.select_related("stream"),
+                queryset=ChannelStream.objects.select_related("stream").order_by(
+                    "order", "id"
+                ),
             )
         )
     channels = list(channel_qs)
